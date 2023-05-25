@@ -1,0 +1,19 @@
+﻿.PrivateMsg {
+    background-color: cadetblue;
+    color:white;
+}
+
+.YourMsg {
+    background-color: cornflowerblue;
+    color:white;
+}
+
+.Msg {
+    background-color: ghostwhite;
+}
+
+#ChatBox {
+    height: 70vh;
+    overflow-x: hidden;
+    overflow-y: scroll;
+}

@@ -1,0 +1,232 @@
+﻿@page "/"
+@inject IToastService Toast;
+
+@if (!Connected)
+{
+    <PageTitle>Chat Login</PageTitle>
+}
+else
+{
+    <PageTitle>Chat (@UserName) [@chatMessages.Count]</PageTitle>
+}
+
+
+
+@if (!Connected)
+{
+    <div class="card bg-white">
+        <div class="card-body">
+
+            @if (LoggingIn)
+            {
+                <h5 class="card-title">Logging in...</h5>
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(ErrorMsg))
+                {
+                    <div class="alert alert-danger">@ErrorMsg</div>
+                }
+                <h5 class="card-title">Set UserName</h5>
+                <br />
+                <input class="form-control" type="text" @bind="UserName" />
+                <button class="btn btn-success" @onclick="LoginAsync">Login</button>
+            }
+
+        </div>
+    </div>
+}
+else
+{
+    <div id="ChatBox">
+        @foreach (var message in chatMessages)
+        {
+            if (message.IsYou)
+            {
+                <div class="row">
+                    <div class="col-6"></div>
+                    <div class="col-6">
+                        <div class="card YourMsg">
+                            <div class="card-body">
+                                <h5 class="card-title">@message.UserName</h5>
+                                <p class="card-text">@message.Message</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (message.IsPrivate)
+            {
+                <div class="row">
+                    <div class="col-6">
+                        <div class="card PrivateMsg">
+                            <div class="card-body">
+                                <h5 class="card-title">@message.UserName (To you)</h5>
+                                <p class="card-text">@message.Message</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6"></div>
+                </div>
+            }
+            else
+            {
+                <div class="row">
+                    <div class="col-6">
+                        <div class="card Msg">
+                            <div class="card-body">
+                                <h5 class="card-title">@message.UserName</h5>
+                                <p class="card-text">@message.Message</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6"></div>
+                </div>
+            }
+        }
+    </div>
+
+    <div>
+        <select @onchange="onSelectedUserChanged">
+            @foreach (var user in Users)
+            {
+                <option value="@user">@user</option>
+            }
+        </select>
+        <label for="Chk_Private"> Private Message </label>
+        <input type="checkbox" @bind="PrivateMsg" id="Chk_Private" />
+        <textarea class="form-control" @bind="Msg"></textarea>
+        <button @onclick="SendMsg" >Send</button>
+    </div>
+}
+
+
+
+
+@code {
+    ObservableCollection<ChatMessage> chatMessages = new ObservableCollection<ChatMessage>();
+
+    bool Connected = false;
+    bool LoggingIn = false;
+
+    string UserName = string.Empty;
+    string ErrorMsg = string.Empty;
+    string PrivateUser = string.Empty;
+
+    ObservableCollection<string> Users = new ObservableCollection<string>();
+
+    string Msg = string.Empty;
+    bool PrivateMsg = false;
+
+    HubConnection Connection = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Connection = new HubConnectionBuilder()
+                     .WithUrl("https://localhost:7164/Chat")
+                     .Build();
+
+        Connection.On<string, string>("ReceiveMessage",(user,msg) => {
+            chatMessages.Add(new ChatMessage
+            {
+                UserName = user,
+                Message = msg
+            });
+            StateHasChanged();
+        });
+
+        Connection.On<string, string>("ReceivePrivateMessage", (user, msg) =>
+        {
+            chatMessages.Add(new ChatMessage
+                {
+                    UserName = user,
+                    Message = msg,
+                    IsPrivate = true
+                });
+            StateHasChanged();
+        });
+
+        Connection.On("ReceiveUserACK", () =>
+        {
+            Connected = true;
+            LoggingIn = false;
+            Toast.ShowSuccess("Logged in");
+
+            Connection.On<string>("OnUserLogin", (username) =>
+            {
+                Users.Add(username);
+
+                if (Users.Count == 1)
+                {
+                    PrivateUser = username;
+                }
+
+                Toast.ShowInfo($"{username} logged in.");
+                StateHasChanged();
+            });
+
+            Connection.On<string>("OnUserLogout", (username) =>
+            {
+                Users.Remove(username);
+                Toast.ShowInfo($"{username} logged out.");
+                StateHasChanged();
+            });
+
+            StateHasChanged();
+        });
+
+        Connection.On("ReceiveUserNACK", () =>
+        {
+            LoggingIn = false;
+            Toast.ShowWarning("UserName already taken");
+            StateHasChanged();
+        });
+
+        await Connection.StartAsync();
+    }
+
+    public async Task LoginAsync()
+    {
+        if (!string.IsNullOrEmpty(UserName))
+        {
+            LoggingIn = true;
+            await Connection.SendAsync("Login", UserName);
+        }
+    }
+
+    public async Task SendMsg()
+    {
+
+        var message = new ChatMessage()
+        {
+            UserName = UserName,
+            Message = Msg,
+            IsYou = true
+        };
+
+        if (PrivateMsg)
+        {
+            await Connection.SendAsync("SendMessageTo", UserName,PrivateUser,Msg);
+            chatMessages.Add(message);
+        }
+        else
+        {
+            await Connection.SendAsync("SendMessage", UserName, Msg);
+            chatMessages.Add(message);
+        }
+
+
+
+
+    }
+
+    void onSelectedUserChanged(ChangeEventArgs e)
+    {
+        if (e.Value != null)
+        {
+            PrivateUser = e.Value.ToString();
+        }
+    }
+
+    
+}
